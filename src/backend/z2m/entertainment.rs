@@ -21,6 +21,13 @@ pub struct EntStream {
 }
 
 impl EntStream {
+    /// Maximum number of light records sent in one entertainment frame.
+    ///
+    /// A frame is 6 header bytes + 7 bytes per record. Frames with 6 records
+    /// (48 bytes) were observed to fail with `MESSAGE_TOO_LONG` on z2m, while
+    /// 3 records work. 4 is a conservative value; tune after live testing.
+    pub const MAX_RECORDS_PER_FRAME: usize = 4;
+
     #[must_use]
     pub fn new(
         counter: u32,
@@ -119,7 +126,16 @@ impl EntStream {
     ) -> ApiResult<()> {
         let blks = self.generate_frame(frame);
 
-        let message = self.stream.frame(blks)?;
-        z2mws.send_entertainment_frame(&self.target, &message).await
+        // A single Zigbee message has limited room for payload. Frames with
+        // too many light records (e.g. two 3-segment Signe lamps) are rejected
+        // by the adapter with MESSAGE_TOO_LONG, so send them in several parts.
+        for chunk in blks.chunks(Self::MAX_RECORDS_PER_FRAME) {
+            let message = self.stream.frame(chunk.to_vec())?;
+            z2mws
+                .send_entertainment_frame(&self.target, &message)
+                .await?;
+        }
+
+        Ok(())
     }
 }
