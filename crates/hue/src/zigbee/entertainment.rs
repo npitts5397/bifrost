@@ -96,6 +96,21 @@ impl HueEntFrameLightRecord {
     pub const fn raw(&self) -> [u8; 3] {
         self.raw
     }
+
+    /// Zigbee network address of the recipient
+    #[must_use]
+    pub const fn addr(&self) -> u16 {
+        self.addr
+    }
+
+    /// The quantized (12-bit) x and y color coordinates, as packed by
+    /// [`XY::to_quant()`]
+    #[must_use]
+    pub fn raw_xy(&self) -> (u16, u16) {
+        let x = u16::from(self.raw[0]) | (u16::from(self.raw[1] & 0x0F) << 8);
+        let y = (u16::from(self.raw[2]) << 4) | u16::from(self.raw[1] >> 4);
+        (x, y)
+    }
 }
 
 impl Debug for HueEntFrameLightRecord {
