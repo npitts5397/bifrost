@@ -151,6 +151,28 @@ z2m:
     # - There usually no reason to go above 60.
     # - Have fun experimenting :-)
     streaming_fps: 20
+
+    # Streaming mode ("Entertainment mode" / "Hue Sync") maximum number of
+    # light records per Zigbee message
+    # [optional!]
+    #
+    # Every frame of an entertainment stream contains one record per
+    # entertainment channel (one per light, or one per segment for
+    # multi-segment lights such as the Hue Signe or gradient lightstrips).
+    # A Zigbee message can only carry so many records. Frames with more records
+    # than this limit are split into several, evenly sized, messages that are
+    # sent back to back (so a 14-record frame becomes 4 messages of 4, 4, 3
+    # and 3 records).
+    #
+    # If not specified, uses a default of 4. Messages with 6 records have been
+    # observed to be rejected by Zigbee2MQTT with MESSAGE_TOO_LONG.
+    #
+    # Rules of thumb(s):
+    # - If you see MESSAGE_TOO_LONG errors from Zigbee2MQTT, lower this.
+    # - Higher values mean fewer Zigbee messages per frame, and therefore
+    #   less load on your Zigbee mesh and adapter, but only as long as your
+    #   adapter accepts them.
+    streaming_max_records_per_message: 4
   ...
 
 # In-memory Zigbee2MQTT test server [optional!]

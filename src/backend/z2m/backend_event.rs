@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -691,7 +692,11 @@ impl Z2mBackend {
         drop(lock);
 
         if let Some(target) = targets.first() {
-            let mut es = EntStream::new(self.counter, target, addrs, channels);
+            let max_records = self.server.streaming_max_records_per_message.map_or(
+                EntStream::DEFAULT_MAX_RECORDS_PER_MESSAGE,
+                NonZeroUsize::get,
+            );
+            let mut es = EntStream::new(self.counter, target, addrs, channels, max_records);
 
             // hack: This diverges from the observed behavior of the Hue bridge.
             // The real fix is to persist the latest value of the entertainment counter,
