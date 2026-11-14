@@ -1,5 +1,5 @@
 use bifrost_api::backend::BackendRequest;
-use hue::devicedb::gradient_product_data;
+use hue::devicedb::{gradient_product_data, product_data};
 use hue::error::HueError;
 use serde_json::Value;
 use uuid::{Uuid, uuid};
@@ -11,7 +11,7 @@ use hue::api::{
     EntertainmentConfigurationStatus, EntertainmentConfigurationStreamMembers,
     EntertainmentConfigurationStreamProxy, EntertainmentConfigurationStreamProxyMode,
     EntertainmentConfigurationStreamProxyUpdate, EntertainmentConfigurationUpdate, Light,
-    LightMode, RType, Resource, ResourceLink,
+    LightMode, Position, RType, Resource, ResourceLink,
 };
 
 use crate::error::ApiResult;
@@ -93,14 +93,36 @@ fn make_channels(
         let device = lock.get::<Device>(&ent.owner)?;
 
         let gradient = gradient_product_data(&device.product_data.model_id);
+        let has_own_gradient_data =
+            product_data(&device.product_data.model_id).is_some_and(|pd| pd.gradient.is_some());
 
         let positions = gradient.entertainment_channel_positions;
         if let Some(segs) = &ent.segments {
             if segs.segments.len() > 1 {
+                // For lights that we have no segment positions for (e.g. the
+                // Hue Signe), the Hue app tells us where the first and the
+                // last segment are, with a start and an end point. Spread the
+                // segments evenly between them. Flipping the light in the app
+                // swaps the two points, which reverses the order of the
+                // segments.
+                let line = match (location.positions.first(), location.positions.last()) {
+                    (Some(start), Some(end))
+                        if location.positions.len() >= 2 && !has_own_gradient_data =>
+                    {
+                        Some(Position::spread(start, end, segs.segments.len()))
+                    }
+                    _ => None,
+                };
+
                 for index in 0..segs.segments.len() {
+                    let position = line.as_ref().map_or_else(
+                        || positions[index % positions.len()].clone(),
+                        |line| line[index].clone(),
+                    );
+
                     channels.push(EntertainmentConfigurationChannels {
                         channel_id,
-                        position: positions[index % positions.len()].clone(),
+                        position,
                         members: vec![EntertainmentConfigurationStreamMembers {
                             service: location.service,
                             index: u16::try_from(index)?,
