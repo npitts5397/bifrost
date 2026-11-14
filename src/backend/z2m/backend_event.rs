@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU8, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
 use hue::clamp::Clamp;
 use hue::effect_duration::EffectDuration;
-use hue::zigbee::{GradientParams, GradientStyle, HueZigbeeUpdate, LightRecordMode};
+use hue::zigbee::{
+    EntertainmentZigbeeStream, GradientParams, GradientStyle, HueZigbeeUpdate, LightRecordMode,
+};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -23,6 +25,7 @@ use z2m::api::DeviceRead;
 use z2m::update::{DeviceEffect, DeviceUpdate};
 
 use crate::backend::z2m::entertainment::EntStream;
+use crate::backend::z2m::record_selector::SelectorConfig;
 use crate::backend::z2m::websocket::Z2mWebSocket;
 use crate::backend::z2m::{Z2mBackend, Z2mMessage};
 use crate::error::ApiResult;
@@ -696,7 +699,17 @@ impl Z2mBackend {
                 EntStream::DEFAULT_MAX_RECORDS_PER_MESSAGE,
                 NonZeroUsize::get,
             );
-            let mut es = EntStream::new(self.counter, target, addrs, channels, max_records);
+            let selector = SelectorConfig {
+                max_records_per_frame: self
+                    .server
+                    .streaming_max_records_per_frame
+                    .map(NonZeroUsize::get),
+                min_change_percent: self.server.streaming_min_change_percent.map(NonZeroU8::get),
+                // records that did not change are sent again after a second
+                refresh_frames: u64::from(self.fps),
+            };
+            let mut es =
+                EntStream::new(self.counter, target, addrs, channels, max_records, selector);
 
             // hack: This diverges from the observed behavior of the Hue bridge.
             // The real fix is to persist the latest value of the entertainment counter,
@@ -708,7 +721,15 @@ impl Z2mBackend {
             // We set the entertainment mode fade speed ("smoothing")
             // to fit the target frame rate, to ensure perfectly smooth
             // transitionss, even at low frame rates!
-            es.stream.set_smoothing_duration(self.throttle.interval())?;
+            //
+            // If only some of the records are sent for each frame, a single
+            // light is only updated every few frames, so the fade needs to
+            // last that much longer (but not longer than the maximum).
+            let frames_per_update = i32::try_from(es.frames_per_update()).unwrap_or(i32::MAX);
+            let smoothing = (self.throttle.interval() * frames_per_update).min(
+                chrono::Duration::microseconds(EntertainmentZigbeeStream::SMOOTHING_MAX_MICROS - 1),
+            );
+            es.stream.set_smoothing_duration(smoothing)?;
 
             es.start_stream(z2mws).await?;
 

@@ -10,6 +10,7 @@ use hue::zigbee::{
 use z2m::request::Z2mRequest;
 use zcl::attr::ZclDataType;
 
+use crate::backend::z2m::record_selector::{RecordSelector, SelectorConfig};
 use crate::backend::z2m::websocket::Z2mWebSocket;
 use crate::error::ApiResult;
 
@@ -19,6 +20,7 @@ pub struct EntStream {
     pub addrs: BTreeMap<String, Vec<u16>>,
     pub channels: BTreeMap<u8, (u16, LightRecordMode)>,
     max_records: usize,
+    selector: RecordSelector,
 }
 
 /// Split `items` into the fewest slices of at most `max` elements each, with
@@ -54,6 +56,7 @@ impl EntStream {
         addrs: BTreeMap<String, Vec<u16>>,
         channels: BTreeMap<u8, (u16, LightRecordMode)>,
         max_records: usize,
+        selector: SelectorConfig,
     ) -> Self {
         Self {
             stream: EntertainmentZigbeeStream::new(counter),
@@ -61,7 +64,17 @@ impl EntStream {
             addrs,
             channels,
             max_records,
+            selector: RecordSelector::new(selector),
         }
+    }
+
+    /// The number of frames between updates of a single light record
+    ///
+    /// This is 1 unless the number of records per frame is limited, in which
+    /// case the records are sent in turn.
+    #[must_use]
+    pub fn frames_per_update(&self) -> usize {
+        self.selector.slices(self.channels.len())
     }
 
     #[must_use]
@@ -145,7 +158,7 @@ impl EntStream {
         z2mws: &mut Z2mWebSocket,
         frame: &HueStreamLightsV2,
     ) -> ApiResult<()> {
-        let blks = self.generate_frame(frame);
+        let blks = self.selector.select(self.generate_frame(frame));
 
         // A single Zigbee message has limited room for payload. Frames with
         // many light records (e.g. multi-segment lamps such as the Hue Signe,

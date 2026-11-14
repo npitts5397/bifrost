@@ -5,6 +5,7 @@ mod button;
 pub mod entertainment;
 mod group;
 pub mod learn;
+pub mod record_selector;
 pub mod websocket;
 pub mod zclcommand;
 

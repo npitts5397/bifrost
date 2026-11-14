@@ -173,6 +173,42 @@ z2m:
     #   less load on your Zigbee mesh and adapter, but only as long as your
     #   adapter accepts them.
     streaming_max_records_per_message: 4
+
+    # Streaming mode ("Entertainment mode" / "Hue Sync") maximum number of
+    # light records sent for each frame
+    # [optional!]
+    #
+    # Lights with many segments (such as the Hue Signe) need many records per
+    # frame, which means many Zigbee messages per second. If this causes
+    # trouble for your Zigbee mesh or adapter (for example "out of buffers" or
+    # ACK timeout errors from Zigbee2MQTT), this option reduces the traffic
+    # by sending only some of the records of each frame.
+    #
+    # The records that were sent the longest time ago go first, so all
+    # records are updated in turn. For example, with 14 records and a limit
+    # of 4, every record is updated on every 4th frame. Bifrost lengthens the
+    # fade of the lights to match, so the result stays smooth, but each light
+    # segment reacts more slowly.
+    #
+    # If not specified, every record is sent for every frame.
+    streaming_max_records_per_frame: 4
+
+    # Streaming mode ("Entertainment mode" / "Hue Sync") minimum change
+    # [optional!]
+    #
+    # A number from 1 to 100 (percent). A record is only sent again once its
+    # brightness or color has changed by at least this much since it was last
+    # sent (records that did not change are sent again about once per second,
+    # to keep the lights from going stale).
+    #
+    # This helps most with slow or partly static effects. For effects where
+    # all segments change all the time, it saves little.
+    #
+    # Can be combined with `streaming_max_records_per_frame`, in which case
+    # only changed records are sent, up to that limit.
+    #
+    # If not specified, every record is sent for every frame.
+    streaming_min_change_percent: 2
   ...
 
 # In-memory Zigbee2MQTT test server [optional!]

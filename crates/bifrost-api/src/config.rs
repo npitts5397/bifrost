@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{
     collections::BTreeMap,
-    num::{NonZeroU32, NonZeroUsize},
+    num::{NonZeroU8, NonZeroU32, NonZeroUsize},
 };
 
 use camino::Utf8PathBuf;
@@ -50,6 +50,8 @@ pub struct Z2mServer {
     pub disable_tls_verify: Option<bool>,
     pub streaming_fps: Option<NonZeroU32>,
     pub streaming_max_records_per_message: Option<NonZeroUsize>,
+    pub streaming_max_records_per_frame: Option<NonZeroUsize>,
+    pub streaming_min_change_percent: Option<NonZeroU8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
