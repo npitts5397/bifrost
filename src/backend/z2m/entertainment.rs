@@ -18,21 +18,49 @@ pub struct EntStream {
     pub target: String,
     pub addrs: BTreeMap<String, Vec<u16>>,
     pub channels: BTreeMap<u8, (u16, LightRecordMode)>,
+    max_records: usize,
+}
+
+/// Split `items` into the fewest slices of at most `max` elements each, with
+/// the slice sizes as even as possible (e.g. 5 items with `max` 4 become 3+2,
+/// not 4+1). Yields nothing for an empty slice.
+fn balanced_chunks<T>(items: &[T], max: usize) -> impl Iterator<Item = &[T]> {
+    let parts = items.len().div_ceil(max.max(1));
+    let base = items.len().checked_div(parts).unwrap_or(0);
+    let extra = items.len().checked_rem(parts).unwrap_or(0);
+    let mut rest = items;
+
+    (0..parts).map(move |i| {
+        let (chunk, tail) = rest.split_at(base + usize::from(i < extra));
+        rest = tail;
+        chunk
+    })
 }
 
 impl EntStream {
+    /// Default for the maximum number of light records sent in one Zigbee
+    /// entertainment message.
+    ///
+    /// A message is 6 header bytes plus 7 bytes per light record. Messages
+    /// with 6 records (48 bytes) were observed to be rejected with
+    /// `MESSAGE_TOO_LONG` by `Zigbee2MQTT`, while 3 records work. 4 is a
+    /// conservative value. Can be changed with `streaming_max_records_per_message`.
+    pub const DEFAULT_MAX_RECORDS_PER_MESSAGE: usize = 4;
+
     #[must_use]
     pub fn new(
         counter: u32,
         target: &str,
         addrs: BTreeMap<String, Vec<u16>>,
         channels: BTreeMap<u8, (u16, LightRecordMode)>,
+        max_records: usize,
     ) -> Self {
         Self {
             stream: EntertainmentZigbeeStream::new(counter),
             target: target.to_string(),
             addrs,
             channels,
+            max_records,
         }
     }
 
@@ -119,7 +147,73 @@ impl EntStream {
     ) -> ApiResult<()> {
         let blks = self.generate_frame(frame);
 
-        let message = self.stream.frame(blks)?;
-        z2mws.send_entertainment_frame(&self.target, &message).await
+        // A single Zigbee message has limited room for payload. Frames with
+        // many light records (e.g. multi-segment lamps such as the Hue Signe,
+        // or areas with several lights) are rejected with MESSAGE_TOO_LONG,
+        // so send them as several messages, each with its own frame counter.
+        //
+        // A frame without any matching light records is not sent at all.
+        for chunk in balanced_chunks(&blks, self.max_records) {
+            let message = self.stream.frame(chunk.to_vec())?;
+            z2mws
+                .send_entertainment_frame(&self.target, &message)
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::balanced_chunks;
+
+    fn sizes(len: usize, max: usize) -> Vec<usize> {
+        let items: Vec<usize> = (0..len).collect();
+        balanced_chunks(&items, max).map(<[usize]>::len).collect()
+    }
+
+    #[test]
+    fn empty_yields_no_chunks() {
+        assert_eq!(sizes(0, 4), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn fits_in_one_chunk() {
+        assert_eq!(sizes(1, 4), [1]);
+        assert_eq!(sizes(3, 4), [3]);
+        assert_eq!(sizes(4, 4), [4]);
+    }
+
+    #[test]
+    fn chunks_are_as_even_as_possible() {
+        assert_eq!(sizes(5, 4), [3, 2]);
+        assert_eq!(sizes(6, 4), [3, 3]);
+        assert_eq!(sizes(8, 4), [4, 4]);
+        assert_eq!(sizes(14, 4), [4, 4, 3, 3]);
+    }
+
+    #[test]
+    fn respects_the_maximum() {
+        for max in 1..=8 {
+            for len in 0..=40 {
+                let s = sizes(len, max);
+                assert_eq!(s.iter().sum::<usize>(), len);
+                assert!(s.iter().all(|&n| (1..=max).contains(&n)));
+                assert_eq!(s.len(), len.div_ceil(max));
+            }
+        }
+    }
+
+    #[test]
+    fn chunks_keep_the_original_order() {
+        let items: Vec<usize> = (0..14).collect();
+        let flat: Vec<usize> = balanced_chunks(&items, 4).flatten().copied().collect();
+        assert_eq!(flat, items);
+    }
+
+    #[test]
+    fn zero_maximum_is_treated_as_one() {
+        assert_eq!(sizes(3, 0), [1, 1, 1]);
     }
 }
