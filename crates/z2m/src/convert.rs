@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 use std::io::Cursor;
 
 use hue::api::{
-    ColorGamut, ColorTemperature, DeviceProductData, Dimming, DimmingDeltaAction, GamutType,
-    GroupedLightUpdate, LightColor, LightGradient, LightGradientMode, LightGradientPoint,
-    LightGradientUpdate, LightUpdate, MirekSchema,
+    ColorGamut, ColorTemperature, DeviceArchetype, DeviceProductData, Dimming, DimmingDeltaAction,
+    GamutType, GroupedLightUpdate, LightColor, LightGradient, LightGradientMode,
+    LightGradientPoint, LightGradientUpdate, LightUpdate, MirekSchema,
 };
 use hue::devicedb::product_data;
 use hue::error::HueError;
@@ -138,6 +138,57 @@ pub trait ExtractDeviceProductData {
     fn guess_from_device(dev: &Device) -> Self;
 }
 
+/// Is a device made by Philips Hue (Signify)?
+///
+/// Depending on the firmware, Hue devices report their manufacturer as either
+/// "Philips" or "Signify Netherlands B.V.". This looks at the manufacturer, not
+/// at the model, so Hue devices that we do not know yet are recognized as well.
+#[must_use]
+pub fn is_hue_device(dev: &Device) -> bool {
+    dev.manufacturer.as_deref().is_some_and(|manufacturer| {
+        manufacturer == DeviceProductData::SIGNIFY_MANUFACTURER_NAME || manufacturer == "Philips"
+    })
+}
+
+/// Guess the archetype (the icon in the Hue app) of a light from its
+/// description in Zigbee2MQTT, for lights that are not in the device database
+///
+/// Returns `UnknownArchetype` if nothing in the description gives it away.
+#[must_use]
+pub fn archetype_from_description(description: &str) -> DeviceArchetype {
+    let description = description.to_lowercase();
+    let mentions = |words: &[&str]| words.iter().any(|word| description.contains(word));
+
+    // the most specific ones first
+    if mentions(&["signe"]) {
+        DeviceArchetype::HueSigne
+    } else if mentions(&["lightbar", "light bar"]) {
+        DeviceArchetype::HuePlay
+    } else if mentions(&["lightstrip", "light strip", "led strip"]) {
+        DeviceArchetype::HueLightstrip
+    } else if mentions(&["downlight", "recessed"]) {
+        DeviceArchetype::RecessedCeiling
+    } else if mentions(&["candle", "e12", "e14"]) {
+        DeviceArchetype::CandleBulb
+    } else if mentions(&["spot", "gu10", "par16"]) {
+        DeviceArchetype::SpotBulb
+    } else if mentions(&["flood", "br30", "br40"]) {
+        DeviceArchetype::FloodBulb
+    } else if mentions(&["pendant"]) {
+        DeviceArchetype::PendantRound
+    } else if mentions(&["floor lamp"]) {
+        DeviceArchetype::FloorShade
+    } else if mentions(&["table lamp"]) {
+        DeviceArchetype::TableShade
+    } else if mentions(&["ceiling"]) {
+        DeviceArchetype::CeilingRound
+    } else if mentions(&["bulb", "e26", "e27", "a19", "a60", "b22"]) {
+        DeviceArchetype::SultanBulb
+    } else {
+        DeviceArchetype::UnknownArchetype
+    }
+}
+
 impl ExtractDeviceProductData for DeviceProductData {
     fn guess_from_device(dev: &Device) -> Self {
         fn str_or_unknown(name: Option<&str>) -> String {
@@ -176,10 +227,18 @@ impl ExtractDeviceProductData for DeviceProductData {
             .unwrap_or("0.0.0")
             .to_string();
 
-        let product_archetype = product_data
-            .as_ref()
-            .map(|p| p.product_archetype.clone())
-            .unwrap_or_default();
+        // For Hue devices that are not in the database we guess the archetype
+        // from the description. We do not guess for the devices of others.
+        let product_archetype = product_data.as_ref().map_or_else(
+            || {
+                dev.definition
+                    .as_ref()
+                    .filter(|_| is_hue_device(dev))
+                    .map(|def| archetype_from_description(&def.description))
+                    .unwrap_or_default()
+            },
+            |p| p.product_archetype.clone(),
+        );
         let hardware_platform_type = product_data
             .as_ref()
             .and_then(|p| p.hardware_platform_type)
@@ -268,5 +327,75 @@ impl From<&GroupedLightUpdate> for DeviceUpdate {
                     .as_ref()
                     .and_then(|d| d.duration.map(|duration| f64::from(duration) / 1000.0)),
             )
+    }
+}
+
+#[cfg(test)]
+mod archetype_tests {
+    use hue::api::DeviceArchetype;
+
+    use super::archetype_from_description;
+
+    #[test]
+    fn descriptions_of_hue_lights_in_the_wild() {
+        for (description, archetype) in [
+            (
+                "Hue white and color ambiance E26/A19 1600lm",
+                DeviceArchetype::SultanBulb,
+            ),
+            (
+                "Hue white and color ambiance E26/E27",
+                DeviceArchetype::SultanBulb,
+            ),
+            (
+                "Hue white and color ambiance 5/6\" retrofit recessed downlight",
+                DeviceArchetype::RecessedCeiling,
+            ),
+            (
+                "Hue White and Color Ambiance E12 with bluetooth",
+                DeviceArchetype::CandleBulb,
+            ),
+            (
+                "Hue White and color ambiance Play Lightbar",
+                DeviceArchetype::HuePlay,
+            ),
+            (
+                "Hue Gradient Signe floor lamp (black)",
+                DeviceArchetype::HueSigne,
+            ),
+            (
+                "Hue white and color ambiance GU10",
+                DeviceArchetype::SpotBulb,
+            ),
+            (
+                "Hue Play gradient lightstrip 65",
+                DeviceArchetype::HueLightstrip,
+            ),
+        ] {
+            assert_eq!(
+                archetype_from_description(description),
+                archetype,
+                "{description}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_to_go_on_gives_the_unknown_archetype() {
+        for description in ["", "2-in-1 switch + dimmer", "Fan canopy module"] {
+            assert_eq!(
+                archetype_from_description(description),
+                DeviceArchetype::UnknownArchetype,
+                "{description}"
+            );
+        }
+    }
+
+    #[test]
+    fn matching_ignores_case() {
+        assert_eq!(
+            archetype_from_description("HUE CANDLE"),
+            DeviceArchetype::CandleBulb
+        );
     }
 }

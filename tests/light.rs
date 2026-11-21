@@ -288,7 +288,9 @@ async fn get_lights() -> TestResult<()> {
     let mut hue_white_ambiance = expected_dimmable_light(
         owner,
         &HUE_WHITE_AMBIANCE,
-        DeviceArchetype::UnknownArchetype,
+        // not in the device database, so guessed from its description
+        // ("Hue white ambiance GU10")
+        DeviceArchetype::SpotBulb,
         false,
         50.0,
     );

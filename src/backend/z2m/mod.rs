@@ -99,6 +99,7 @@ pub struct Z2mBackend {
     used_group_ids: HashSet<u32>,
     learner: SceneLearn,
     ignore: HashSet<String>,
+    ignored: HashSet<ResourceLink>,
     network: HashMap<String, z2m::api::Device>,
     segments: HashMap<String, SegmentInfo>,
     segments_queried: HashSet<String>,
@@ -128,6 +129,7 @@ impl Z2mBackend {
         let map = HashMap::new();
         let rmap = HashMap::new();
         let ignore = HashSet::new();
+        let ignored = HashSet::new();
         let learner = SceneLearn::new(name.clone());
         let network = HashMap::new();
         let segments = HashMap::new();
@@ -147,6 +149,7 @@ impl Z2mBackend {
             used_group_ids,
             learner,
             ignore,
+            ignored,
             network,
             segments,
             segments_queried,

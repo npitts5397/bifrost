@@ -20,7 +20,7 @@ use hue::scene_icons;
 use z2m::api::ExposeLight;
 use z2m::convert::{
     ExtractColorTemperature, ExtractDeviceProductData, ExtractDimming, ExtractLightColor,
-    ExtractLightGradient,
+    ExtractLightGradient, is_hue_device,
 };
 
 use crate::backend::z2m::button::Z2mButtonData;
@@ -30,6 +30,23 @@ use crate::model::state::AuxData;
 use crate::resource::Resources;
 
 impl Z2mBackend {
+    /// The archetype (icon) that the config gives to a device, by its name
+    /// first, and otherwise by its model
+    fn configured_archetype(&self, apidev: &z2m::api::Device) -> Option<DeviceArchetype> {
+        let archetypes = self.server.device_archetypes.as_ref()?;
+
+        archetypes
+            .get(&apidev.friendly_name)
+            .or_else(|| {
+                let model = apidev.model_id.as_deref()?;
+                archetypes
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(model))
+                    .map(|(_, archetype)| archetype)
+            })
+            .cloned()
+    }
+
     #[allow(clippy::too_many_lines)]
     pub async fn add_light(
         &mut self,
@@ -44,7 +61,13 @@ impl Z2mBackend {
         let link_taurus = RType::Taurus.deterministic(&apidev.ieee_address);
         let link_zigcon = RType::ZigbeeConnectivity.deterministic(&apidev.ieee_address);
 
-        let product_data = DeviceProductData::guess_from_device(apidev);
+        let mut product_data = DeviceProductData::guess_from_device(apidev);
+
+        // an archetype from the config wins over what we know or guess
+        if let Some(archetype) = self.configured_archetype(apidev) {
+            product_data.product_archetype = archetype;
+        }
+
         let metadata = LightMetadata::new(product_data.product_archetype.clone(), name);
 
         let effects =
@@ -134,13 +157,11 @@ impl Z2mBackend {
             );
 
             // Ask the light how many segments it has. Only Hue lights know
-            // how to answer, and once is enough. Depending on the firmware,
-            // Hue lights call themselves "Philips" or "Signify".
-            let is_hue = apidev.manufacturer.as_deref().is_some_and(|manufacturer| {
-                manufacturer == DeviceProductData::SIGNIFY_MANUFACTURER_NAME
-                    || manufacturer == "Philips"
-            });
-            if is_hue && self.segments_queried.insert(name.clone()) && self.entstream.is_none() {
+            // how to answer, and once is enough.
+            if is_hue_device(apidev)
+                && self.segments_queried.insert(name.clone())
+                && self.entstream.is_none()
+            {
                 self.message_tx
                     .send((name.clone(), Z2mMessage::SegmentQuery))
                     .ok();
@@ -314,6 +335,7 @@ impl Z2mBackend {
         self.set_group_aux(&mut lock, link_glight, grp.id, Some(&topic));
         drop(lock);
 
+        // devices that are left out of Bifrost are not part of the group either
         let children = grp
             .members
             .iter()
@@ -321,6 +343,7 @@ impl Z2mBackend {
                 RType::Zone => RType::Light.deterministic(&f.ieee_address),
                 _ => RType::Device.deterministic(&f.ieee_address),
             })
+            .filter(|link| !self.ignored.contains(link))
             .collect();
 
         let mut res = self.state.lock().await;
