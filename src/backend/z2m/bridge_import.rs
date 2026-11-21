@@ -134,8 +134,13 @@ impl Z2mBackend {
             );
 
             // Ask the light how many segments it has. Only Hue lights know
-            // how to answer, and once is enough.
-            if effects && self.segments_queried.insert(name.clone()) && self.entstream.is_none() {
+            // how to answer, and once is enough. Depending on the firmware,
+            // Hue lights call themselves "Philips" or "Signify".
+            let is_hue = apidev.manufacturer.as_deref().is_some_and(|manufacturer| {
+                manufacturer == DeviceProductData::SIGNIFY_MANUFACTURER_NAME
+                    || manufacturer == "Philips"
+            });
+            if is_hue && self.segments_queried.insert(name.clone()) && self.entstream.is_none() {
                 self.message_tx
                     .send((name.clone(), Z2mMessage::SegmentQuery))
                     .ok();
