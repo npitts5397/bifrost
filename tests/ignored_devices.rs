@@ -244,3 +244,55 @@ async fn unknown_hue_lights_get_an_archetype_from_their_description() -> TestRes
 
     Ok(())
 }
+
+#[tokio::test]
+async fn devices_saved_with_an_old_icon_are_refreshed() -> TestResult<()> {
+    // a device that an earlier version saved with the generic icon, for a
+    // light that we know has the icon of a spot bulb
+    let ieee: IeeeAddress = serde_json::from_str(&format!("\"{}\"", HUE_LAMP.ieee_address()))?;
+    let device_link = RType::Device.deterministic(&ieee);
+    let light_link = RType::Light.deterministic(&ieee);
+
+    let mut bridge = TestBridge::start_with_seed_and_z2m_config(
+        z2m_state(),
+        |resources| {
+            let device = Device {
+                product_data: DeviceProductData {
+                    model_id: "old".to_string(),
+                    manufacturer_name: "old".to_string(),
+                    product_name: "old".to_string(),
+                    product_archetype: DeviceArchetype::UnknownArchetype,
+                    certified: false,
+                    software_version: "0.0.0".to_string(),
+                    hardware_platform_type: None,
+                },
+                metadata: Metadata::new(DeviceArchetype::UnknownArchetype, "hue_lamp"),
+                services: BTreeSet::from([light_link]),
+                identify: None,
+                usertest: None,
+            };
+            resources.add(&device_link, Resource::Device(device))?;
+            Ok(())
+        },
+        json!({}),
+    )
+    .await?;
+    bridge.wait_for_room(&ROOM).await?;
+
+    let devices = bridge
+        .hue_client
+        .get_resources::<Device>(RType::Device)
+        .await?;
+    let device = devices
+        .iter()
+        .find(|device| device.metadata.name == "hue_lamp")
+        .expect("the device is there");
+    assert_ne!(device.product_data.model_id, "old");
+    assert_eq!(
+        device.product_data.product_archetype,
+        DeviceArchetype::SpotBulb
+    );
+    assert_eq!(device.metadata.archetype, DeviceArchetype::SpotBulb);
+
+    Ok(())
+}
