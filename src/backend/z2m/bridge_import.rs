@@ -214,6 +214,9 @@ impl Z2mBackend {
             status: ZigbeeConnectivityStatus::Connected,
         };
 
+        let fresh_product_data = dev.product_data.clone();
+        let fresh_archetype = dev.metadata.archetype.clone();
+
         let mut res = self.state.lock().await;
         res.aux_set(
             &link_light,
@@ -224,6 +227,22 @@ impl Z2mBackend {
         res.add(&link_enttm, Resource::Entertainment(enttm))?;
         res.add(&link_taurus, Resource::Taurus(taurus))?;
         res.add(&link_zigcon, Resource::ZigbeeConnectivity(zigcon))?;
+
+        // Devices that were saved by an earlier run are kept as they are, so
+        // bring their product data and icon up to date. Nothing is written (and
+        // no event is sent) when there is nothing to change.
+        let outdated = res.get::<hue::api::Device>(&link_device).is_ok_and(|d| {
+            d.product_data != fresh_product_data || d.metadata.archetype != fresh_archetype
+        });
+        if outdated {
+            res.update::<hue::api::Device>(&link_device.rid, |d| {
+                d.product_data = fresh_product_data;
+                d.metadata.archetype = fresh_archetype.clone();
+            })?;
+            res.update::<Light>(&link_light.rid, |l| {
+                l.metadata.archetype = fresh_archetype;
+            })?;
+        }
         drop(res);
 
         Ok(())

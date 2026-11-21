@@ -80,7 +80,7 @@ pub struct UserTest {
     usertest: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct DeviceProductData {
     pub model_id: String,
     pub manufacturer_name: String,
