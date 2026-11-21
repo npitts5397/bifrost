@@ -48,6 +48,25 @@ impl Z2mRequests {
         }
     }
 
+    /// Wait for the read of the segment attributes of a light (which is
+    /// otherwise skipped, see [`is_segment_query`])
+    pub async fn expect_segment_query(
+        &mut self,
+        device: &(impl TestZ2mDeviceOrGroup + Sync),
+    ) -> TestResult<()> {
+        let topic = format!("{}/set", device.topic());
+
+        loop {
+            let msg = timeout(TIMEOUT, self.receiver.recv())
+                .await
+                .map_err(|_| TestError::Z2mRequestTimeout)??;
+
+            if msg.topic == topic && is_segment_query(&msg) {
+                return Ok(());
+            }
+        }
+    }
+
     pub async fn expect_quiet(&mut self) -> TestResult<()> {
         match timeout(Duration::from_millis(100), async {
             self.next_request().await

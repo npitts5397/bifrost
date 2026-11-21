@@ -129,3 +129,14 @@ async fn an_implausible_segment_count_is_ignored() -> TestResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn hue_lights_with_many_segments_are_asked_for_their_segment_count() -> TestResult<()> {
+    let mut bridge = TestBridge::start(z2m_state()).await?;
+    let mut requests = bridge.z2m.subscribe_requests();
+
+    // the fixture calls itself "Philips", like the Hue Signe does
+    let light = bridge.wait_for_light(FLOOR_LAMP).await?;
+
+    requests.expect_segment_query(&light).await
+}
