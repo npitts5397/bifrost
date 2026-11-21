@@ -6,6 +6,7 @@ pub mod entertainment;
 mod group;
 pub mod learn;
 pub mod record_selector;
+pub mod segments;
 pub mod websocket;
 pub mod zclcommand;
 
@@ -31,6 +32,7 @@ use tokio_tungstenite::{
 use bifrost_api::backend::BackendRequest;
 use hue::api::ResourceLink;
 use z2m::api::DeviceRead;
+use z2m::request::Z2mRequest;
 use z2m::update::DeviceUpdate;
 
 use crate::backend::z2m::button::Z2mButtonHandler;
@@ -76,6 +78,15 @@ impl ServiceTemplate for Z2mServiceTemplate {
 enum Z2mMessage {
     DeviceUpdate(DeviceUpdate),
     DeviceRead(DeviceRead),
+    SegmentQuery,
+}
+
+/// What we know about the segments of a multi-segment light
+struct SegmentInfo {
+    /// The number of segments the light has
+    native: usize,
+    /// Is `native` only a guess, taken from the data of another kind of light?
+    guessed: bool,
 }
 
 pub struct Z2mBackend {
@@ -89,6 +100,8 @@ pub struct Z2mBackend {
     learner: SceneLearn,
     ignore: HashSet<String>,
     network: HashMap<String, z2m::api::Device>,
+    segments: HashMap<String, SegmentInfo>,
+    segments_queried: HashSet<String>,
     entstream: Option<EntStream>,
     counter: u32,
     fps: u32,
@@ -117,6 +130,8 @@ impl Z2mBackend {
         let ignore = HashSet::new();
         let learner = SceneLearn::new(name.clone());
         let network = HashMap::new();
+        let segments = HashMap::new();
+        let segments_queried = HashSet::new();
         let entstream = None;
         let throttle = Throttle::from_fps(fps);
         let button_handlers = HashMap::new();
@@ -133,6 +148,8 @@ impl Z2mBackend {
             learner,
             ignore,
             network,
+            segments,
+            segments_queried,
             entstream,
             throttle,
             fps,
@@ -171,6 +188,9 @@ impl Z2mBackend {
                         },
                         Z2mMessage::DeviceRead(device_read) => {
                             socket.send_read(&topic, &device_read).await?;
+                        },
+                        Z2mMessage::SegmentQuery => {
+                            socket.send(&topic, &Z2mRequest::Raw(segments::request())).await?;
                         },
                     }
                 }

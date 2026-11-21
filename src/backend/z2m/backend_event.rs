@@ -20,6 +20,7 @@ use hue::api::{
     Zone, ZoneNew, ZoneUpdate,
 };
 use hue::error::HueError;
+use hue::gradient::expand_addresses;
 use hue::stream::HueStreamLightsV2;
 use z2m::api::DeviceRead;
 use z2m::update::{DeviceEffect, DeviceUpdate};
@@ -692,6 +693,18 @@ impl Z2mBackend {
             }
         }
         log::debug!("Entertainment addresses: {addrs:04x?}");
+
+        // If the segments of lights were merged into groups, each light still
+        // has more native segments than channels. Give every native segment
+        // the address of its group, so that the group is driven as a whole.
+        if self.server.streaming_max_segments_per_light.is_some() {
+            for (name, list) in &mut addrs {
+                if let Some(info) = self.segments.get(name) {
+                    *list = expand_addresses(list, info.native);
+                }
+            }
+            log::debug!("Entertainment addresses after grouping: {addrs:04x?}");
+        }
         drop(lock);
 
         if let Some(target) = targets.first() {

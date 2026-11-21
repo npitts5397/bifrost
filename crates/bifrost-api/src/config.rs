@@ -52,6 +52,7 @@ pub struct Z2mServer {
     pub streaming_max_records_per_message: Option<NonZeroUsize>,
     pub streaming_max_records_per_frame: Option<NonZeroUsize>,
     pub streaming_min_change_percent: Option<NonZeroU8>,
+    pub streaming_max_segments_per_light: Option<NonZeroUsize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]

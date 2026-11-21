@@ -261,6 +261,13 @@ pub mod hue {
         Z2mDeviceFixture::new(device_id, json_file("hue/play_gradient_lightstrip.json"))
     }
 
+    /// A Hue gradient light of a model that Bifrost has no data for, so it
+    /// has to guess its segments
+    #[must_use]
+    pub fn gradient_floor_lamp(device_id: &FixtureDevice) -> Z2mDeviceFixture {
+        Z2mDeviceFixture::new(device_id, json_file("hue/gradient_floor_lamp.json"))
+    }
+
     #[must_use]
     pub fn dimmer_switch(device_id: &FixtureDevice) -> Z2mDeviceFixture {
         Z2mDeviceFixture::new(device_id, json_file("hue/dimmer_switch_gen1.json"))
