@@ -209,6 +209,30 @@ z2m:
     #
     # If not specified, every record is sent for every frame.
     streaming_min_change_percent: 2
+
+    # Streaming mode ("Entertainment mode" / "Hue Sync") maximum number of
+    # segments per light
+    # [optional!]
+    #
+    # Lights with many segments (the Hue Signe has 10, gradient lightstrips
+    # have 7) are shown to clients as one channel per segment, and every
+    # channel takes a record in every frame. This option merges neighbouring
+    # segments into at most this many groups, so that such a light has fewer
+    # channels and uses fewer records per frame.
+    #
+    # For example, with 3, a 10 segment light is shown as 3 channels that cover
+    # 4, 3 and 3 of its segments. Lights with fewer segments are left alone.
+    #
+    # This applies to every multi-segment light, and takes effect when the
+    # entertainment areas are saved again (e.g. by editing the area in the Hue
+    # app), since the channels of an area are fixed when it is saved.
+    #
+    # Note: when streaming, the lights are told to treat all the segments of a
+    # group as one, by giving them the same address. This has only been tried
+    # on a Hue Signe. If some segments stay dark, remove this option.
+    #
+    # If not specified, every segment is a channel.
+    streaming_max_segments_per_light: 3
   ...
 
 # In-memory Zigbee2MQTT test server [optional!]

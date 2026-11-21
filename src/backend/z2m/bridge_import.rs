@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 
 use maplit::btreeset;
 use serde_json::json;
@@ -13,7 +14,8 @@ use hue::api::{
     ResourceLink, Room, Scene, SceneActive, SceneMetadata, SceneRecall, SceneStatus, Stub, Taurus,
     ZigbeeConnectivity, ZigbeeConnectivityStatus, Zone,
 };
-use hue::devicedb::gradient_product_data;
+use hue::devicedb::{gradient_product_data, product_data as product_data_lookup};
+use hue::gradient::group_segments;
 use hue::scene_icons;
 use z2m::api::ExposeLight;
 use z2m::convert::{
@@ -21,13 +23,14 @@ use z2m::convert::{
     ExtractLightGradient,
 };
 
-use crate::backend::z2m::Z2mBackend;
 use crate::backend::z2m::button::Z2mButtonData;
+use crate::backend::z2m::{SegmentInfo, Z2mBackend, Z2mMessage};
 use crate::error::{ApiError, ApiResult};
 use crate::model::state::AuxData;
 use crate::resource::Resources;
 
 impl Z2mBackend {
+    #[allow(clippy::too_many_lines)]
     pub async fn add_light(
         &mut self,
         apidev: &z2m::api::Device,
@@ -48,6 +51,8 @@ impl Z2mBackend {
             apidev.manufacturer.as_deref() == Some(DeviceProductData::SIGNIFY_MANUFACTURER_NAME);
         let gradient = apidev.expose_gradient();
         let gradient_product_data = gradient_product_data(&product_data.model_id);
+        let has_own_gradient_data =
+            product_data_lookup(&product_data.model_id).is_some_and(|data| data.gradient.is_some());
 
         let dev = hue::api::Device {
             product_data,
@@ -110,10 +115,36 @@ impl Z2mBackend {
         }
 
         let segments = if gradient.is_some() {
+            let native = gradient_product_data.entertainment_segments;
+
+            // If configured, merge the segments of the light into fewer
+            // groups. Every group is a segment (and a channel) for clients,
+            // and takes a single record per frame.
+            let max = self
+                .server
+                .streaming_max_segments_per_light
+                .map_or(0, NonZeroUsize::get);
+
+            self.segments.insert(
+                name.clone(),
+                SegmentInfo {
+                    native: native.len(),
+                    guessed: !has_own_gradient_data,
+                },
+            );
+
+            // Ask the light how many segments it has. Only Hue lights know
+            // how to answer, and once is enough.
+            if effects && self.segments_queried.insert(name.clone()) && self.entstream.is_none() {
+                self.message_tx
+                    .send((name.clone(), Z2mMessage::SegmentQuery))
+                    .ok();
+            }
+
             EntertainmentSegments {
                 configurable: false,
                 max_segments: 10,
-                segments: gradient_product_data.entertainment_segments.to_vec(),
+                segments: group_segments(native, max),
             }
         } else {
             EntertainmentSegments {

@@ -23,11 +23,29 @@ impl Z2mRequests {
     }
 }
 
+/// The read that Bifrost sends to Hue lights with many segments when it
+/// imports them, to ask how many segments they have
+///
+/// That is background traffic, not something the tests are about, so it is
+/// not reported as a request.
+fn is_segment_query(msg: &RawMessage) -> bool {
+    msg.payload
+        .pointer("/read/state_property")
+        .and_then(Value::as_str)
+        == Some(bifrost::backend::z2m::segments::PROPERTY)
+}
+
 impl Z2mRequests {
     pub async fn next_request(&mut self) -> TestResult<RawMessage> {
-        Ok(timeout(TIMEOUT, self.receiver.recv())
-            .await
-            .map_err(|_| TestError::Z2mRequestTimeout)??)
+        loop {
+            let msg = timeout(TIMEOUT, self.receiver.recv())
+                .await
+                .map_err(|_| TestError::Z2mRequestTimeout)??;
+
+            if !is_segment_query(&msg) {
+                return Ok(msg);
+            }
+        }
     }
 
     pub async fn expect_quiet(&mut self) -> TestResult<()> {

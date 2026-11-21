@@ -7,17 +7,18 @@ use tokio_tungstenite::tungstenite;
 use uuid::Uuid;
 
 use hue::api::{
-    Device, DimmingUpdate, GroupedLight, Light, LightUpdate, RType, Resource, ResourceLink, Room,
-    Zone,
+    Device, DimmingUpdate, Entertainment, EntertainmentSegment, GroupedLight, Light, LightUpdate,
+    RType, Resource, ResourceLink, Room, Zone,
 };
+use hue::gradient::group_segments;
 use z2m::api::{
     BridgeDevices, DeviceRemoveResponse, GroupMemberChange, GroupRemove, Message, RawMessage,
     Response,
 };
 use z2m::update::DeviceUpdate;
 
-use crate::backend::z2m::Z2mBackend;
 use crate::backend::z2m::button::Z2mButtonHandler;
+use crate::backend::z2m::{Z2mBackend, segments};
 use crate::error::{ApiError, ApiResult};
 use crate::resource::Resources;
 
@@ -50,6 +51,86 @@ impl Z2mBackend {
         })
     }
 
+    /// A light told us how many segments it has (see [`segments`])
+    ///
+    /// For lights that we only have a guess for, the count of the light wins.
+    /// Otherwise we keep the data we have, and just mention the difference.
+    async fn handle_segment_info(&mut self, rid: &Uuid, info: &Value) {
+        let Some(topic) = self.rmap.get(&RType::Light.link_to(*rid)).cloned() else {
+            return;
+        };
+
+        log::info!(
+            "[{}] {topic}: segment attributes read from the light: {info}",
+            self.name
+        );
+
+        let Some(count) = segments::reported_count(info) else {
+            log::warn!("[{}] {topic}: no usable segment count in that", self.name);
+            return;
+        };
+
+        let Some(known) = self.segments.get(&topic) else {
+            return;
+        };
+        let (table, guessed) = (known.native, known.guessed);
+
+        if count == table {
+            log::info!(
+                "[{}] {topic}: the light has {count} segments, as we expected",
+                self.name
+            );
+            return;
+        }
+
+        if !guessed {
+            log::warn!(
+                "[{}] {topic}: the light reports {count} segments, but we have data that says {table}. Keeping {table}",
+                self.name
+            );
+            return;
+        }
+
+        let Some(device) = self.network.get(&topic) else {
+            return;
+        };
+        let enttm = RType::Entertainment.deterministic(&device.ieee_address);
+
+        let native: Vec<EntertainmentSegment> = (0..count)
+            .filter_map(|start| u32::try_from(start).ok())
+            .map(|start| EntertainmentSegment { start, length: 1 })
+            .collect();
+        let max = self
+            .server
+            .streaming_max_segments_per_light
+            .map_or(0, std::num::NonZeroUsize::get);
+        let grouped = group_segments(&native, max);
+        let effective = grouped.len();
+
+        let res = self
+            .state
+            .lock()
+            .await
+            .update::<Entertainment>(&enttm.rid, |ent| {
+                if let Some(segs) = &mut ent.segments {
+                    segs.segments = grouped;
+                }
+            });
+
+        match res {
+            Ok(()) => {
+                if let Some(info) = self.segments.get_mut(&topic) {
+                    info.native = count;
+                }
+                log::info!(
+                    "[{}] {topic}: the light reports {count} segments, our guess was {table}. Using {count} ({effective} for clients)",
+                    self.name
+                );
+            }
+            Err(err) => log::error!("[{}] {topic}: cannot update segments: {err}", self.name),
+        }
+    }
+
     async fn handle_update(&mut self, rid: &Uuid, payload: &Value) -> ApiResult<()> {
         if let Value::String(string) = payload
             && string.is_empty()
@@ -60,6 +141,10 @@ impl Z2mBackend {
 
         let upd = DeviceUpdate::deserialize(payload)?;
         log::trace!("Device update {upd:#?}");
+
+        if let Some(info) = upd.__.get(segments::PROPERTY) {
+            self.handle_segment_info(rid, info).await;
+        }
 
         let obj = self.state.lock().await.get_resource_by_id(rid)?.obj;
         match obj {
