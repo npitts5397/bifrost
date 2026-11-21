@@ -15,6 +15,7 @@ use z2m::api::{
     BridgeDevices, DeviceRemoveResponse, GroupMemberChange, GroupRemove, Message, RawMessage,
     Response,
 };
+use z2m::convert::is_hue_device;
 use z2m::update::DeviceUpdate;
 
 use crate::backend::z2m::button::Z2mButtonHandler;
@@ -267,9 +268,55 @@ impl Z2mBackend {
         }
     }
 
+    /// Is this a device that is left out of Bifrost, because only Hue devices
+    /// are wanted?
+    ///
+    /// Hue devices are recognized by their manufacturer, so new models are
+    /// shown without us having to know them.
+    fn is_ignored_device(&self, dev: &z2m::api::Device) -> bool {
+        self.server.only_hue_devices.unwrap_or_default() && !is_hue_device(dev)
+    }
+
+    /// Leave a device out of Bifrost, and remove it if an earlier run added it
+    async fn ignore_device(&mut self, dev: &z2m::api::Device) -> ApiResult<()> {
+        let link_device = RType::Device.deterministic(&dev.ieee_address);
+        let link_light = RType::Light.deterministic(&dev.ieee_address);
+
+        // so that it is also left out of groups
+        self.ignored.insert(link_device);
+        self.ignored.insert(link_light);
+
+        if self.ignore.insert(dev.friendly_name.clone()) {
+            log::info!(
+                "[{}] Ignoring device [{}] ({})",
+                self.name,
+                dev.friendly_name,
+                dev.model_id.as_deref().unwrap_or("<unknown model>")
+            );
+        }
+
+        let mut res = self.state.lock().await;
+        if res.get::<Device>(&link_device).is_ok() {
+            log::info!(
+                "[{}] Removing ignored device [{}] that was added earlier",
+                self.name,
+                dev.friendly_name
+            );
+            res.delete(&link_device)?;
+        }
+
+        Ok(())
+    }
+
     async fn bridge_devices(&mut self, devices: &BridgeDevices) -> ApiResult<()> {
         for dev in devices {
             self.network.insert(dev.friendly_name.clone(), dev.clone());
+
+            if self.is_ignored_device(dev) {
+                self.ignore_device(dev).await?;
+                continue;
+            }
+
             if let Some(exp) = dev.expose_light() {
                 log::info!(
                     "[{}] Adding light {:?}: [{}] ({})",

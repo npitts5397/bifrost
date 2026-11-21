@@ -233,6 +233,38 @@ z2m:
     #
     # If not specified, every segment is a channel.
     streaming_max_segments_per_light: 3
+
+    # Only show Hue devices
+    # [optional!]
+    #
+    # If true, devices that are not made by Hue (Signify) are left out of
+    # Bifrost entirely: they are not shown in the Hue app, and are not part of
+    # the rooms and zones that contain them. They still work in Zigbee2MQTT,
+    # including as part of its groups.
+    #
+    # Hue devices are recognized by their manufacturer, not by their model, so
+    # new Hue devices are shown without Bifrost having to know them.
+    #
+    # Devices that were added by an earlier run are removed again.
+    #
+    # If not specified (or false), every device is shown.
+    only_hue_devices: true
+
+    # The icon of devices in the Hue app
+    # [optional!]
+    #
+    # The icon of a device is set by its "archetype". Bifrost knows the
+    # archetype of many Hue models, and guesses the archetype of other Hue
+    # lights from their description in Zigbee2MQTT. Use this to set the
+    # archetype yourself, by the friendly name or by the model of a device.
+    # A friendly name takes precedence over a model.
+    #
+    # Examples of archetypes: classic_bulb, sultan_bulb, candle_bulb,
+    # spot_bulb, recessed_ceiling, ceiling_round, pendant_round, floor_shade,
+    # table_shade, hue_signe, hue_lightstrip, hue_play, plug
+    device_archetypes:
+      "Living Room lamp": table_shade
+      "VZM31-SN": ceiling_round
   ...
 
 # In-memory Zigbee2MQTT test server [optional!]

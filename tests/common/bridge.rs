@@ -113,18 +113,40 @@ impl TestBridge {
         z2m_state: BTreeMap<String, Value>,
         seed: impl FnOnce(&mut Resources) -> TestResult<()>,
     ) -> TestResult<Self> {
-        Self::start_interal(BTreeMap::from([("test".to_string(), z2m_state)]), seed).await
+        Self::start_with_seed_and_z2m_config(z2m_state, seed, json!({})).await
     }
 
     pub async fn start_backends(
         z2m_states: BTreeMap<String, BTreeMap<String, Value>>,
     ) -> TestResult<Self> {
-        Self::start_interal(z2m_states, |_| Ok(())).await
+        Self::start_interal(z2m_states, |_| Ok(()), &json!({})).await
+    }
+
+    /// Start with extra settings for the (only) `Zigbee2MQTT` server in the config
+    pub async fn start_with_z2m_config(
+        z2m_state: BTreeMap<String, Value>,
+        z2m_config: Value,
+    ) -> TestResult<Self> {
+        Self::start_with_seed_and_z2m_config(z2m_state, |_| Ok(()), z2m_config).await
+    }
+
+    pub async fn start_with_seed_and_z2m_config(
+        z2m_state: BTreeMap<String, Value>,
+        seed: impl FnOnce(&mut Resources) -> TestResult<()>,
+        z2m_config: Value,
+    ) -> TestResult<Self> {
+        Self::start_interal(
+            BTreeMap::from([("test".to_string(), z2m_state)]),
+            seed,
+            &z2m_config,
+        )
+        .await
     }
 
     async fn start_interal(
         z2m_states: BTreeMap<String, BTreeMap<String, Value>>,
         seed: impl FnOnce(&mut Resources) -> TestResult<()>,
+        z2m_config: &Value,
     ) -> TestResult<Self> {
         let workdir = Self::create_workdir()?;
         let mut tasks = JoinSet::new();
@@ -141,7 +163,7 @@ impl TestBridge {
             .iter()
             .map(|(name, service)| (name.clone(), service.config.listen))
             .collect();
-        let config = Self::create_appconfig(http_address, z2m_addresses, &workdir)?;
+        let config = Self::create_appconfig(http_address, z2m_addresses, &workdir, z2m_config)?;
 
         let (svc_manager, manager_future) = ServiceManager::spawn();
         let (behavior_trigger_tx, behavior_trigger_rx) = mpsc::channel(16);
@@ -235,10 +257,19 @@ impl TestBridge {
         http_address: SocketAddr,
         z2m_addresses: BTreeMap<String, SocketAddr>,
         workdir: &std::path::Path,
+        z2m_config: &Value,
     ) -> TestResult<AppConfig> {
         let z2m = z2m_addresses
             .into_iter()
-            .map(|(name, address)| (name, json!({"url": format!("ws://{address}/api")})))
+            .map(|(name, address)| {
+                let mut server = json!({"url": format!("ws://{address}/api")});
+                if let (Some(server), Some(extra)) =
+                    (server.as_object_mut(), z2m_config.as_object())
+                {
+                    server.extend(extra.clone());
+                }
+                (name, server)
+            })
             .collect::<BTreeMap<_, _>>();
 
         Ok(serde_json::from_value(json!({

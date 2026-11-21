@@ -28,6 +28,23 @@ pub struct SimpleProductData<'a> {
 }
 
 impl<'a> SimpleProductData<'a> {
+    /// helper function to construct signify devices, for which we do not know
+    /// the hardware platform type
+    #[must_use]
+    pub const fn signify_generic(
+        product_name: &'a str,
+        product_archetype: DeviceArchetype,
+    ) -> Self {
+        Self {
+            model_id: None,
+            manufacturer_name: DeviceProductData::SIGNIFY_MANUFACTURER_NAME,
+            product_name,
+            product_archetype,
+            hardware_platform_type: None,
+            gradient: None,
+        }
+    }
+
     /// helper function to construct signify devices
     #[must_use]
     pub const fn signify(
@@ -65,6 +82,14 @@ fn make_product_data() -> BTreeMap<&'static str, SimpleProductData<'static>> {
 
     maplit::btreemap! {
         "915005987201" => SPD::signify("Signe gradient floor", HueSigne, "100b-118"),
+        "915005987601" => SPD::signify_generic("Hue Gradient Signe floor lamp", HueSigne),
+        "LCA003" => SPD::signify_generic("Hue white and color ambiance E26/E27", SultanBulb),
+        "LCA009" => SPD::signify_generic("Hue white and color ambiance E26/A19", SultanBulb),
+        "LCD006" => SPD::signify_generic("Hue white and color ambiance retrofit downlight", RecessedCeiling),
+        "LCE001" => SPD::signify_generic("Hue white and color ambiance E12", CandleBulb),
+        "LCT024" => SPD::signify_generic("Hue white and color ambiance Play lightbar", HuePlay),
+        "929003736601_01" => SPD::signify_generic("Hue Datura", CeilingRound),
+        "929003736601_02" => SPD::signify_generic("Hue Datura", CeilingRound),
         "929003053301_01" => SPD::signify("Hue Ensis up", PendantLong, "100b-11f"),
         "929003053301_02" => SPD::signify("Hue Ensis down", PendantLong, "100b-11f"),
         "929004610402" => SPD::signify("Hue Flux strip light", HueLightstrip, "100b-118").with_gradient(GRADIENT_929004610402.clone()),
@@ -167,5 +192,33 @@ mod tests {
     #[test]
     fn lookup_platform_type() {
         assert_eq!(hardware_platform_type("LCX001").unwrap(), "100b-118",);
+    }
+
+    #[test]
+    fn lights_without_known_platform_type_have_none() {
+        assert!(product_data("LCA009").is_some());
+        assert_eq!(hardware_platform_type("LCA009"), None);
+    }
+
+    #[test]
+    fn archetypes_of_common_hue_lights() {
+        for (model, archetype) in [
+            ("LCA003", DeviceArchetype::SultanBulb),
+            ("LCA009", DeviceArchetype::SultanBulb),
+            ("LCD006", DeviceArchetype::RecessedCeiling),
+            ("LCE001", DeviceArchetype::CandleBulb),
+            ("LCT024", DeviceArchetype::HuePlay),
+            ("915005987601", DeviceArchetype::HueSigne),
+            ("929003736601_01", DeviceArchetype::CeilingRound),
+            ("929003736601_02", DeviceArchetype::CeilingRound),
+        ] {
+            assert_eq!(product_archetype(model), Some(archetype), "{model}");
+        }
+    }
+
+    #[test]
+    fn signe_has_no_segment_data_of_its_own() {
+        // so its segment count can be taken from the light itself
+        assert!(product_data("915005987601").unwrap().gradient.is_none());
     }
 }
