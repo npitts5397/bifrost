@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
@@ -11,6 +12,7 @@ use z2m::request::Z2mRequest;
 use zcl::attr::ZclDataType;
 
 use crate::backend::z2m::record_selector::{RecordSelector, SelectorConfig};
+use crate::backend::z2m::stream_stats::StreamStats;
 use crate::backend::z2m::websocket::Z2mWebSocket;
 use crate::error::ApiResult;
 
@@ -21,6 +23,7 @@ pub struct EntStream {
     pub channels: BTreeMap<u8, (u16, LightRecordMode)>,
     max_records: usize,
     selector: RecordSelector,
+    pub stats: StreamStats,
 }
 
 /// Split `items` into the fewest slices of at most `max` elements each, with
@@ -57,6 +60,7 @@ impl EntStream {
         channels: BTreeMap<u8, (u16, LightRecordMode)>,
         max_records: usize,
         selector: SelectorConfig,
+        stats_interval: Option<Duration>,
     ) -> Self {
         Self {
             stream: EntertainmentZigbeeStream::new(counter),
@@ -65,6 +69,7 @@ impl EntStream {
             channels,
             max_records,
             selector: RecordSelector::new(selector),
+            stats: StreamStats::new(stats_interval, Instant::now()),
         }
     }
 
@@ -158,7 +163,9 @@ impl EntStream {
         z2mws: &mut Z2mWebSocket,
         frame: &HueStreamLightsV2,
     ) -> ApiResult<()> {
-        let blks = self.selector.select(self.generate_frame(frame));
+        let generated = self.generate_frame(frame);
+        let generated_count = generated.len();
+        let blks = self.selector.select(generated);
 
         // A single Zigbee message has limited room for payload. Frames with
         // many light records (e.g. multi-segment lamps such as the Hue Signe,
@@ -166,12 +173,21 @@ impl EntStream {
         // so send them as several messages, each with its own frame counter.
         //
         // A frame without any matching light records is not sent at all.
+        let mut messages = 0;
         for chunk in balanced_chunks(&blks, self.max_records) {
             let message = self.stream.frame(chunk.to_vec())?;
             z2mws
                 .send_entertainment_frame(&self.target, &message)
                 .await?;
+            messages += 1;
         }
+
+        self.stats.frame_used(
+            generated_count,
+            blks.len(),
+            messages,
+            self.selector.update_gap(),
+        );
 
         Ok(())
     }

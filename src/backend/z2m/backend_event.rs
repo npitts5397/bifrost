@@ -721,8 +721,19 @@ impl Z2mBackend {
                 // records that did not change are sent again after a second
                 refresh_frames: u64::from(self.fps),
             };
-            let mut es =
-                EntStream::new(self.counter, target, addrs, channels, max_records, selector);
+            let stats_interval = self
+                .server
+                .streaming_stats_interval_secs
+                .map(|secs| std::time::Duration::from_secs(u64::from(secs.get())));
+            let mut es = EntStream::new(
+                self.counter,
+                target,
+                addrs,
+                channels,
+                max_records,
+                selector,
+                stats_interval,
+            );
 
             // hack: This diverges from the observed behavior of the Hue bridge.
             // The real fix is to persist the latest value of the entertainment counter,
@@ -757,10 +768,16 @@ impl Z2mBackend {
         z2mws: &mut Z2mWebSocket,
         frame: &HueStreamLightsV2,
     ) -> ApiResult<()> {
-        if let Some(es) = &mut self.entstream
-            && self.throttle.tick()
-        {
-            es.frame(z2mws, frame).await?;
+        if let Some(es) = &mut self.entstream {
+            es.stats.frame_offered();
+
+            if self.throttle.tick() {
+                es.frame(z2mws, frame).await?;
+            }
+
+            if let Some(line) = es.stats.tick(std::time::Instant::now()) {
+                log::info!("[{}] {line}", self.name);
+            }
         }
 
         Ok(())
@@ -769,6 +786,12 @@ impl Z2mBackend {
     async fn backend_entertainment_stop(&mut self, z2mws: &mut Z2mWebSocket) -> ApiResult<()> {
         log::debug!("Stopping entertainment mode..");
         if let Some(es) = &mut self.entstream.take() {
+            log::info!(
+                "[{}] {}",
+                self.name,
+                es.stats.summary(std::time::Instant::now())
+            );
+
             let mut lock = self.state.lock().await;
 
             es.reset_stream(z2mws).await?;

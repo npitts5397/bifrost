@@ -7,6 +7,7 @@ mod group;
 pub mod learn;
 pub mod record_selector;
 pub mod segments;
+pub mod stream_stats;
 pub mod websocket;
 pub mod zclcommand;
 
@@ -126,6 +127,7 @@ impl Z2mBackend {
         state: Arc<Mutex<Resources>>,
     ) -> ApiResult<Self> {
         let fps = server.streaming_fps.map_or(Self::DEFAULT_FPS, u32::from);
+        log::info!("[{name}] {}", Self::describe_streaming(&server, fps));
         let map = HashMap::new();
         let rmap = HashMap::new();
         let ignore = HashSet::new();
@@ -162,6 +164,27 @@ impl Z2mBackend {
             socket: None,
             counter: 0,
         })
+    }
+
+    /// The streaming settings in effect, for the log (to tie a test run to
+    /// the settings it ran with)
+    fn describe_streaming(server: &Z2mServer, fps: u32) -> String {
+        fn setting<T: std::fmt::Display>(value: Option<T>) -> String {
+            value.map_or_else(|| "off".to_string(), |v| v.to_string())
+        }
+
+        format!(
+            "Streaming settings: fps {fps}, records per message {}, records per frame {}, \
+             min change {}%, segments per light {}, stats interval {} s",
+            server.streaming_max_records_per_message.map_or(
+                EntStream::DEFAULT_MAX_RECORDS_PER_MESSAGE,
+                std::num::NonZeroUsize::get
+            ),
+            setting(server.streaming_max_records_per_frame),
+            setting(server.streaming_min_change_percent),
+            setting(server.streaming_max_segments_per_light),
+            setting(server.streaming_stats_interval_secs),
+        )
     }
 
     pub async fn event_loop(

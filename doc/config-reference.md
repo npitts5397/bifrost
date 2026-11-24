@@ -234,6 +234,21 @@ z2m:
     # If not specified, every segment is a channel.
     streaming_max_segments_per_light: 3
 
+    # Streaming mode ("Entertainment mode" / "Hue Sync") statistics
+    # [optional!]
+    #
+    # Log statistics about the entertainment stream every this many seconds
+    # (frames in, records and Zigbee messages sent per second, and the longest
+    # time between two updates of a record, in frames). Useful for comparing
+    # settings, since it shows what a setting did to the traffic.
+    #
+    # Whatever this is set to, a summary of the same numbers is logged when a
+    # stream ends, and the streaming settings in effect are logged when
+    # Bifrost starts.
+    #
+    # If not specified, only the summary and the settings are logged.
+    streaming_stats_interval_secs: 10
+
     # Only show Hue devices
     # [optional!]
     #
