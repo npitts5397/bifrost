@@ -113,6 +113,21 @@ impl RecordSelector {
             .max(1)
     }
 
+    /// The longest time, in frames, between two updates of a record, as it
+    /// stands now: the frames since the least recently sent record was sent,
+    /// plus the one in which it will be sent again
+    ///
+    /// This is 0 if the selector is not limiting anything, since every record
+    /// is then sent for every frame.
+    #[must_use]
+    pub fn update_gap(&self) -> u64 {
+        self.sent
+            .values()
+            .map(|sent| self.frame.saturating_sub(sent.frame) + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Select the records of this frame that should be sent
     ///
     /// The selected records are returned in their original order.
@@ -296,6 +311,31 @@ mod tests {
             assert_eq!(sel.select(frame(14)).len(), 4);
         }
         assert_eq!(sel.select(frame(3)).len(), 3);
+    }
+
+    #[test]
+    fn update_gap_is_zero_when_nothing_is_limited() {
+        let mut sel = RecordSelector::new(SelectorConfig {
+            max_records_per_frame: None,
+            min_change_percent: None,
+            refresh_frames: 0,
+        });
+        sel.select(frame(14));
+        assert_eq!(sel.update_gap(), 0);
+    }
+
+    #[test]
+    fn update_gap_matches_the_number_of_slices() {
+        // 14 records, 4 per frame: every record is sent every 4th frame
+        let mut sel = RecordSelector::new(per_frame(4));
+        let slices = u64::try_from(sel.slices(14)).unwrap();
+
+        let mut peak = 0;
+        for _ in 0..50 {
+            sel.select(frame(14));
+            peak = peak.max(sel.update_gap());
+        }
+        assert_eq!(peak, slices);
     }
 
     #[test]

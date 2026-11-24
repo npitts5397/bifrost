@@ -53,6 +53,8 @@ pub struct Z2mServer {
     pub streaming_max_records_per_frame: Option<NonZeroUsize>,
     pub streaming_min_change_percent: Option<NonZeroU8>,
     pub streaming_max_segments_per_light: Option<NonZeroUsize>,
+    /// Log statistics about an entertainment stream every this many seconds
+    pub streaming_stats_interval_secs: Option<NonZeroU32>,
     /// Leave out every device that is not a Hue device (by manufacturer)
     pub only_hue_devices: Option<bool>,
     /// The archetype (the icon in the Hue app) of devices, by friendly name or
