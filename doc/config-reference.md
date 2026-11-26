@@ -151,6 +151,37 @@ z2m:
     # - There usually no reason to go above 60.
     # - Have fun experimenting :-)
     streaming_fps: 20
+
+    # Streaming mode ("Entertainment mode" / "Hue Sync") maximum number of
+    # channels updated in each frame
+    # [optional!]
+    #
+    # Every frame of an entertainment stream updates every entertainment
+    # channel (one per light, or one per segment for multi-segment lights
+    # such as the Hue Signe or gradient lightstrips). Many channels means many
+    # Zigbee messages per second. This option reduces the traffic by updating
+    # only some of the channels in each frame.
+    #
+    # Like `streaming_fps`, but instead of lowering the update rate of all
+    # channels at once, it updates only a few channels at a time, in
+    # rotation (round robin).
+    #
+    # The channels that were updated the longest time ago go first, so all
+    # channels are updated in turn. For example, with 14 channels and a limit
+    # of 4, every channel is updated on every 4th frame. Bifrost lengthens the
+    # fade of the lights to match, so the result stays smooth, but each
+    # channel reacts more slowly.
+    #
+    # Unlike lowering `streaming_fps`, this keeps the frame rate, so each
+    # channel is updated with the latest frame from the streaming client when
+    # its turn comes, and the channels do not all change at the same moment.
+    #
+    # If not specified, every channel is updated in every frame.
+    #
+    # Rules of thumb(s):
+    # - Higher numbers mean greater load on your Zigbee mesh.
+    # - Lower numbers make each channel react more slowly.
+    streaming_max_channels_per_frame: 4
   ...
 
 # In-memory Zigbee2MQTT test server [optional!]

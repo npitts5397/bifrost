@@ -96,6 +96,12 @@ impl HueEntFrameLightRecord {
     pub const fn raw(&self) -> [u8; 3] {
         self.raw
     }
+
+    /// Zigbee network address of the recipient
+    #[must_use]
+    pub const fn addr(&self) -> u16 {
+        self.addr
+    }
 }
 
 impl Debug for HueEntFrameLightRecord {

@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
 use hue::clamp::Clamp;
 use hue::effect_duration::EffectDuration;
-use hue::zigbee::{GradientParams, GradientStyle, HueZigbeeUpdate, LightRecordMode};
+use hue::zigbee::{
+    EntertainmentZigbeeStream, GradientParams, GradientStyle, HueZigbeeUpdate, LightRecordMode,
+};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -691,7 +694,17 @@ impl Z2mBackend {
         drop(lock);
 
         if let Some(target) = targets.first() {
-            let mut es = EntStream::new(self.counter, target, addrs, channels);
+            let max_channels_per_frame = self
+                .server
+                .streaming_max_channels_per_frame
+                .map(NonZeroUsize::get);
+            let mut es = EntStream::new(
+                self.counter,
+                target,
+                addrs,
+                channels,
+                max_channels_per_frame,
+            );
 
             // hack: This diverges from the observed behavior of the Hue bridge.
             // The real fix is to persist the latest value of the entertainment counter,
@@ -703,7 +716,15 @@ impl Z2mBackend {
             // We set the entertainment mode fade speed ("smoothing")
             // to fit the target frame rate, to ensure perfectly smooth
             // transitionss, even at low frame rates!
-            es.stream.set_smoothing_duration(self.throttle.interval())?;
+            //
+            // If only some of the records are sent for each frame, a single
+            // light is only updated every few frames, so the fade needs to
+            // last that much longer (but not longer than the maximum).
+            let frames_per_update = i32::try_from(es.frames_per_update()).unwrap_or(i32::MAX);
+            let smoothing = (self.throttle.interval() * frames_per_update).min(
+                chrono::Duration::microseconds(EntertainmentZigbeeStream::SMOOTHING_MAX_MICROS - 1),
+            );
+            es.stream.set_smoothing_duration(smoothing)?;
 
             es.start_stream(z2mws).await?;
 

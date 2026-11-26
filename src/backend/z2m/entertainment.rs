@@ -10,6 +10,7 @@ use hue::zigbee::{
 use z2m::request::Z2mRequest;
 use zcl::attr::ZclDataType;
 
+use crate::backend::z2m::record_selector::RecordSelector;
 use crate::backend::z2m::websocket::Z2mWebSocket;
 use crate::error::ApiResult;
 
@@ -18,6 +19,7 @@ pub struct EntStream {
     pub target: String,
     pub addrs: BTreeMap<String, Vec<u16>>,
     pub channels: BTreeMap<u8, (u16, LightRecordMode)>,
+    selector: RecordSelector,
 }
 
 impl EntStream {
@@ -27,13 +29,24 @@ impl EntStream {
         target: &str,
         addrs: BTreeMap<String, Vec<u16>>,
         channels: BTreeMap<u8, (u16, LightRecordMode)>,
+        max_channels_per_frame: Option<usize>,
     ) -> Self {
         Self {
             stream: EntertainmentZigbeeStream::new(counter),
             target: target.to_string(),
             addrs,
             channels,
+            selector: RecordSelector::new(max_channels_per_frame),
         }
+    }
+
+    /// The number of frames between updates of a single light record
+    ///
+    /// This is 1 unless the number of records per frame is limited, in which
+    /// case the records are sent in turn.
+    #[must_use]
+    pub fn frames_per_update(&self) -> usize {
+        self.selector.slices(self.channels.len())
     }
 
     #[must_use]
@@ -117,7 +130,7 @@ impl EntStream {
         z2mws: &mut Z2mWebSocket,
         frame: &HueStreamLightsV2,
     ) -> ApiResult<()> {
-        let blks = self.generate_frame(frame);
+        let blks = self.selector.select(self.generate_frame(frame));
 
         let message = self.stream.frame(blks)?;
         z2mws.send_entertainment_frame(&self.target, &message).await
